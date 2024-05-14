@@ -37,8 +37,8 @@ const (
 )
 
 type Card struct {
-	Rank
-	Suit
+	Rank `json:"rank"`
+	Suit `json:"suit"`
 }
 
 func (c Card) String() string {

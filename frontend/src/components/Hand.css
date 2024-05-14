@@ -1,0 +1,11 @@
+.hand{
+    display: flex;
+    justify-content: center;
+}
+
+.card-holder{
+    margin-left: -50px;
+}
+.card-holder:first-child{
+    margin-left:0;
+}

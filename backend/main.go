@@ -1,22 +1,130 @@
 package main
 
 import (
-	// "blackjack/deck"
-
+	"blackjack/blackjack"
+	"blackjack/deck"
+	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
+	"sync"
 
 	"golang.org/x/net/websocket"
 )
 
-// WebSocket handler function
+type GameSession struct {
+	Player *blackjack.Player
+	Conn   *websocket.Conn
+}
+
+const (
+	MessageTypeInitialHandshake = "InitialHandshake"
+	MessageTypeStartGame        = "StartGame"
+	MessageTypeEndGame          = "EndGame"
+	MessageTypeHit              = "Hit"
+	MessageTypeStay             = "Stay"
+)
+
+type WebSocketMessage struct {
+	Type string      `json:"type"`
+	Data interface{} `json:"data"`
+}
+
+var (
+	// Map to store WebSocket connections and associated players.
+	connections = make(map[*websocket.Conn]*blackjack.Player)
+	mutex       sync.Mutex // Mutex for safe concurrent access to the map.
+	game        = blackjack.NewGame()
+	counter     = 0
+)
+
 func wsHandler(ws *websocket.Conn) {
 	fmt.Println("Client connected")
+	counter++
+	fmt.Printf("Number of connections: %d\n", counter)
 
-	// Send "Hello, World!" message to the client
-	err := websocket.Message.Send(ws, "Hello, World!")
-	if err != nil {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	player := &blackjack.Player{Username: "NewPlayer", Budget: 100}
+
+	game.Bind(player, ws, 10)
+
+	connections[ws] = player
+
+	sendInitialHandshake(ws)
+
+	for {
+		var msg WebSocketMessage
+
+		if err := websocket.JSON.Receive(ws, &msg); err != nil {
+			fmt.Println("Error receiving message:", err)
+			break
+		}
+
+		switch msg.Type {
+		case MessageTypeStartGame:
+			fmt.Println("Received startGame msg")
+			game.StartGame()
+		case MessageTypeHit:
+			fmt.Println("Received hit msg")
+			player.Hit()
+			player.ShowHand()
+			// if nextRound := player.ShowHand(); !nextRound {
+			// 	break
+
+		// case MessageTypeStay:
+		// player.Stay()
+		case MessageTypeEndGame:
+			game.EndGame()
+		default:
+			fmt.Println("Unknown message type:", msg.Type)
+		}
+	}
+
+	// game.StartGame()
+	// sendInitialHand(ws, player)
+}
+
+func sendInitialHandshake(ws *websocket.Conn) {
+	msg := WebSocketMessage{
+		Type: MessageTypeInitialHandshake,
+		Data: "Welcome to the game!",
+	}
+	sendMessage(ws, msg)
+}
+
+func sendMessage(ws *websocket.Conn, msg WebSocketMessage) {
+	if err := websocket.JSON.Send(ws, msg); err != nil {
 		fmt.Println("Error sending message:", err)
+	}
+}
+
+//	func sendDealersHand(ws *websocket.Conn, player *blackjack.Player) {
+//		dealersHand := game
+//	}
+func sendInitialHand(ws *websocket.Conn, player *blackjack.Player) {
+	myDeck := deck.New(deck.Deck(3), deck.Shuffle)
+
+	hand := []deck.Card{}
+	var tmpCard deck.Card
+	rank := deck.Ace
+	for i := 1; i <= 4; i++ {
+		tmpCard = myDeck[rand.Int()%len(myDeck)]
+		hand = append(hand, tmpCard)
+		rank = rank + 1
+	}
+
+	jsonHand, err := json.Marshal(hand)
+	if err != nil {
+		fmt.Println("Error marshalling hand:", err)
+		return
+	}
+
+	// Send the initial hand to the client.
+	_, err = ws.Write(jsonHand)
+	if err != nil {
+		fmt.Println("Error sending initial hand:", err)
 	}
 }
 
@@ -32,11 +140,8 @@ func main() {
 		game.Bind(player2, 1500)
 		game.StartGame()
 	*/
-
-	// Set up a new WebSocket server at /ws endpoint
 	http.Handle("/ws", websocket.Handler(wsHandler))
 
-	// Start the HTTP server on port 8080
 	fmt.Println("Starting server on :8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		fmt.Println("Error starting server:", err)

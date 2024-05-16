@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
-	"sync"
 
 	"golang.org/x/net/websocket"
 )
@@ -22,7 +21,8 @@ const (
 	MessageTypeStartGame        = "StartGame"
 	MessageTypeEndGame          = "EndGame"
 	MessageTypeHit              = "Hit"
-	MessageTypeStay             = "Stay"
+	MessageTypeStand            = "Stand"
+	MessageTypeEndOfTurn        = "EndOfTurn"
 )
 
 type WebSocketMessage struct {
@@ -32,10 +32,10 @@ type WebSocketMessage struct {
 
 var (
 	// Map to store WebSocket connections and associated players.
-	connections = make(map[*websocket.Conn]*blackjack.Player)
-	mutex       sync.Mutex // Mutex for safe concurrent access to the map.
-	game        = blackjack.NewGame()
-	counter     = 0
+	// connections = make(map[*websocket.Conn]*blackjack.Player)
+	// mutex       sync.Mutex // Mutex for safe concurrent access to the map.
+	game    = blackjack.NewGame()
+	counter = 0
 )
 
 func wsHandler(ws *websocket.Conn) {
@@ -43,16 +43,13 @@ func wsHandler(ws *websocket.Conn) {
 	counter++
 	fmt.Printf("Number of connections: %d\n", counter)
 
-	mutex.Lock()
-	defer mutex.Unlock()
-
 	player := &blackjack.Player{Username: "NewPlayer", Budget: 100}
 
 	game.Bind(player, ws, 10)
 
-	connections[ws] = player
+	// connections[ws] = player
 
-	sendInitialHandshake(ws)
+	// sendInitialHandshake(ws)
 
 	for {
 		var msg WebSocketMessage
@@ -65,6 +62,7 @@ func wsHandler(ws *websocket.Conn) {
 		switch msg.Type {
 		case MessageTypeStartGame:
 			fmt.Println("Received startGame msg")
+
 			game.StartGame()
 		case MessageTypeHit:
 			fmt.Println("Received hit msg")
@@ -73,10 +71,11 @@ func wsHandler(ws *websocket.Conn) {
 			// if nextRound := player.ShowHand(); !nextRound {
 			// 	break
 
-		// case MessageTypeStay:
-		// player.Stay()
+		case MessageTypeStand:
+			game.NextPlayer()
 		case MessageTypeEndGame:
 			game.EndGame()
+			game.NewRound()
 		default:
 			fmt.Println("Unknown message type:", msg.Type)
 		}

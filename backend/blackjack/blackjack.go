@@ -3,6 +3,8 @@ package blackjack
 import (
 	deck "blackjack/deck"
 	"fmt"
+	"sync"
+	"time"
 
 	"golang.org/x/net/websocket"
 )
@@ -19,6 +21,10 @@ const (
 	MessageTypeDealerFinalHand   = "DealerFinalHand"
 	MessageTypeStartGameResponse = "StartGameResponse"
 	MessageTypeGameResult        = "GameResult"
+	MessageTypeInitialHandshake  = "InitialHandshake"
+	MessageTypeStartGame         = "StartGame"
+	MessageTypeOtherHands        = "OtherHands"
+	MessageTypeYourTurn          = "YourTurn"
 )
 
 type WebSocketMessage struct {
@@ -26,6 +32,10 @@ type WebSocketMessage struct {
 	Data interface{} `json:"data"`
 }
 
+type InitialHandshakeMessage struct {
+	Id  int    `json:"id"`
+	Msg string `json:"msg"`
+}
 type HandMessage struct {
 	Hand  []deck.Card `json:"hand"`
 	Stage bool        `json:"stage"`
@@ -38,13 +48,23 @@ type ResultMessage struct {
 	Budget float64 `json:"budget"`
 }
 
+type OtherHandStruct struct {
+	Id        int         `json:"id"`
+	Hand      []deck.Card `json:"hand"`
+	Timestamp time.Time   `json:"timestamp"`
+}
+
 type Game struct {
-	Deck    []deck.Card
-	Players []*Player
-	Dealer  *Dealer
+	mutex            sync.Mutex
+	PlayerIdCounters int
+	Deck             []deck.Card
+	Players          []*Player
+	Dealer           *Dealer
+	CurrentTurn      int
 }
 
 type Player struct {
+	Id       int
 	Username string
 	Budget   float64
 	Stake    float64
@@ -67,14 +87,38 @@ func sendMessage(ws *websocket.Conn, msg WebSocketMessage) {
 
 func NewGame() *Game {
 	game := new(Game)
+	game.PlayerIdCounters = 0
 	game.Deck = deck.New(deck.Deck(1), deck.Shuffle)
 	game.Dealer = new(Dealer)
 	game.Dealer.GameStage = false
 	game.Dealer.Game = game
+	game.CurrentTurn = 0
 	return game
 }
 
+func (g *Game) NewRound() {
+	fmt.Println(g.Dealer.Hand)
+	g.CurrentTurn = 0
+	g.Deck = deck.New(deck.Deck(1), deck.Shuffle)
+	g.Dealer = new(Dealer)
+	g.Dealer.Game = g
+	g.Dealer.GameStage = false
+
+	for _, player := range g.Players {
+		player.Hand = nil
+		// g.Bind(player, player.conn, 10)
+	}
+
+	// g = g
+	fmt.Println(g.Dealer.Hand)
+}
+
 func (g *Game) StartGame() {
+	fmt.Println(g.Dealer.Hand)
+	msg := WebSocketMessage{MessageTypeStartGame, "StartGame"}
+	for _, player := range g.Players {
+		sendMessage(player.conn, msg)
+	}
 	g.Dealer.Hit()
 	g.Dealer.Hit()
 
@@ -87,7 +131,7 @@ func (g *Game) StartGame() {
 	for _, player := range g.Players {
 		player.ShowHand()
 	}
-
+	g.NextPlayer()
 	// for _, player := range g.Players {
 	// 	for {
 	// 		player.ShowHand()
@@ -107,6 +151,18 @@ func (g *Game) StartGame() {
 	// }
 	// g.EndGame()
 }
+
+func (g *Game) NextPlayer() {
+	if g.CurrentTurn == len(g.Players) {
+		g.EndGame()
+		g.NewRound()
+		return
+	}
+	player := g.Players[g.CurrentTurn]
+	msg := WebSocketMessage{MessageTypeYourTurn, 1}
+	sendMessage(player.conn, msg)
+	g.CurrentTurn++
+}
 func (g *Game) EndGame() error {
 	g.Dealer.GameStage = true
 	g.Dealer.ShowHand()
@@ -117,8 +173,13 @@ func (g *Game) EndGame() error {
 		g.Dealer.ShowHand()
 		if g.Dealer.EvalHand() > 21 {
 			fmt.Println("Everybody wins!")
+
 			for _, player := range g.Players {
-				player.Budget += player.Stake * 2
+				if player.EvalHand() <= 21 {
+					player.Budget += player.Stake * 2
+					message := WebSocketMessage{MessageTypeGameResult, ResultMessage{Count: player.EvalHand(), Refund: player.Stake * 2, Budget: player.Budget}}
+					sendMessage(player.conn, message)
+				}
 			}
 			return nil
 		}
@@ -160,16 +221,24 @@ func (g *Game) EndGame() error {
 	return nil
 }
 
-func (g *Game) Bind(p *Player, ws *websocket.Conn, stake float64) error {
+func (g *Game) Bind(p *Player, ws *websocket.Conn, stake float64) (int, error) {
 	if p.Budget < stake {
-		return fmt.Errorf("Not enough credits in player's budget...")
+		return -1, fmt.Errorf("Not enough credits in player's budget...")
 	}
+	g.mutex.Lock()
+	defer g.mutex.Unlock()
+
+	p.Id = g.PlayerIdCounters
+	g.PlayerIdCounters++
 	p.Budget -= stake
 	p.Stake = stake
 	p.Game = g
 	p.conn = ws
 	g.Players = append(g.Players, p)
-	return nil
+	fmt.Printf("New player hes been gived ID of  %d\n", p.Id)
+	msg := WebSocketMessage{MessageTypeInitialHandshake, InitialHandshakeMessage{p.Id, "Welcome to the game!"}}
+	sendMessage(ws, msg)
+	return p.Id, nil
 }
 
 // func (p *Player) Bind(game *Game) {
@@ -198,6 +267,19 @@ func (p *Player) EvalHand() int {
 
 func (p *Player) ShowHand() bool {
 	fmt.Printf("%s hand:\n", p.Username)
+	defer func() {
+		var hands []OtherHandStruct
+		for _, player := range p.Game.Players {
+			hands = append(hands, OtherHandStruct{player.Id, player.Hand, time.Now()})
+
+		}
+		msg := WebSocketMessage{MessageTypeOtherHands, hands}
+		for _, player := range p.Game.Players {
+			if player.Id != p.Id {
+				sendMessage(player.conn, msg)
+			}
+		}
+	}()
 	for _, card := range p.Hand {
 		fmt.Printf("%s, ", card)
 	}
@@ -229,19 +311,14 @@ func (p *Player) ShowHand() bool {
 
 func (d *Dealer) ShowHand() {
 	fmt.Printf("Dealer's hand:\n")
-	// for i, card := range d.Hand {
-	// 	if i == 0 || d.GameStage {
-	// 		if !d.GameStage {
-	// 			message := WebSocketMessage{MessageTypeDealerInitHand, card}
-	// 			for _, player := range d.Game.Players {
-	// 				sendMessage(player.conn, message)
-	// 			}
-	// 		}
-	// 		fmt.Printf("%s, ", card)
-	// 	} else {
-	// 		fmt.Printf("***HIDDEN***")
-	// 	}
-	// }
+	for _, card := range d.Hand {
+		fmt.Printf("%s, ", card)
+		// if i == 0 || d.GameStage {
+		// 	fmt.Printf("%s, ", card)
+		// } else {
+		// 	fmt.Printf("***HIDDEN***")
+		// }
+	}
 
 	if d.GameStage {
 		message := WebSocketMessage{MessageTypeDealerFinalHand, HandMessage{Count: d.EvalHand(), Hand: d.Hand, Stage: true}}
@@ -258,3 +335,7 @@ func (d *Dealer) ShowHand() {
 		fmt.Println("\n-------")
 	}
 }
+
+// func (d *Dealer) ResetDealer() {
+
+// }

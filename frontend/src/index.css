@@ -5,6 +5,7 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  width: 100vw;
 }
 
 code {
@@ -18,9 +19,3 @@ code {
   box-sizing: border-box;
 }
 @import url('https://fonts.googleapis.com/css2?family=Cardo:ital,wght@0,400;0,700;1,400&display=swap');
-
-.test{
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  row-gap: 2em;
-}

@@ -72,12 +72,11 @@ function Card({suit,rank, reversed=false}) {
     useEffect(() => {
         setReverseState(reversed)
     }, [reversed])
-    console.log("revesres", reversed)
     useEffect(() => {
         setSuitState(getSuitPath(suit))
         setRankState(getRank(rank))
         setCenterIconState(getCenterIcon(rank,suit))
-        setReverseState(reversed)
+        // setReverseState(reversed)
     },[])
     const isOddRank = rank % 2 !== 0;
     const oddIndex = isOddRank ? Math.ceil(rank / 3) : 0

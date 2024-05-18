@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"sync"
 
 	"golang.org/x/net/websocket"
 )
@@ -17,12 +18,14 @@ type GameSession struct {
 }
 
 const (
-	MessageTypeInitialHandshake = "InitialHandshake"
-	MessageTypeStartGame        = "StartGame"
-	MessageTypeEndGame          = "EndGame"
-	MessageTypeHit              = "Hit"
-	MessageTypeStand            = "Stand"
-	MessageTypeEndOfTurn        = "EndOfTurn"
+	MessageTypeInitialHandshake  = "InitialHandshake"
+	MessageTypeStartGame         = "StartGame"
+	MessageTypeEndGame           = "EndGame"
+	MessageTypeHit               = "Hit"
+	MessageTypeStand             = "Stand"
+	MessageTypeEndOfTurn         = "EndOfTurn"
+	MessageTypeReconnect         = "Reconnect"
+	MessageTypeReconnectResponse = "ReconnectResponse"
 )
 
 type WebSocketMessage struct {
@@ -30,10 +33,15 @@ type WebSocketMessage struct {
 	Data interface{} `json:"data"`
 }
 
+type MessageReconnectResponse struct {
+	StoredId int `json:"storedId"`
+	GivenId  int `json:"givenId"`
+}
+
 var (
 	// Map to store WebSocket connections and associated players.
 	// connections = make(map[*websocket.Conn]*blackjack.Player)
-	// mutex       sync.Mutex // Mutex for safe concurrent access to the map.
+	mutex   sync.Mutex // Mutex for safe concurrent access to the map.
 	game    = blackjack.NewGame()
 	counter = 0
 )
@@ -43,9 +51,9 @@ func wsHandler(ws *websocket.Conn) {
 	counter++
 	fmt.Printf("Number of connections: %d\n", counter)
 
-	player := &blackjack.Player{Username: "NewPlayer", Budget: 100}
+	newPlayer := &blackjack.Player{Username: "NewPlayer", Budget: 100}
 
-	game.Bind(player, ws, 10)
+	game.Bind(newPlayer, ws, 10)
 
 	// connections[ws] = player
 
@@ -55,7 +63,13 @@ func wsHandler(ws *websocket.Conn) {
 		var msg WebSocketMessage
 
 		if err := websocket.JSON.Receive(ws, &msg); err != nil {
-			fmt.Println("Error receiving message:", err)
+			fmt.Printf("Client with ID %d disconnected...\n", newPlayer.Id)
+			newPlayer.ActiveConnection = false
+			mutex.Lock()
+			// delete(connections, ws)
+			counter--
+			fmt.Printf("Number of connections: %d\n", counter)
+			mutex.Unlock()
 			break
 		}
 
@@ -66,8 +80,8 @@ func wsHandler(ws *websocket.Conn) {
 			game.StartGame()
 		case MessageTypeHit:
 			fmt.Println("Received hit msg")
-			player.Hit()
-			player.ShowHand()
+			newPlayer.Hit()
+			newPlayer.ShowHand()
 			// if nextRound := player.ShowHand(); !nextRound {
 			// 	break
 
@@ -76,6 +90,38 @@ func wsHandler(ws *websocket.Conn) {
 		case MessageTypeEndGame:
 			game.EndGame()
 			game.NewRound()
+		case MessageTypeReconnect:
+			dataMap, ok := msg.Data.(map[string]interface{})
+			if !ok {
+				fmt.Println("Error: Data is not in expected format")
+				continue
+			}
+			reconnectMsg := MessageReconnectResponse{
+				StoredId: int(dataMap["storedId"].(float64)),
+				GivenId:  int(dataMap["givenId"].(float64)),
+			}
+
+			fmt.Printf("Got ID of %d to reconnect\n", reconnectMsg.StoredId)
+			found := false
+			for _, player := range game.Players {
+				if player.Id == reconnectMsg.StoredId {
+					fmt.Printf("Reconnected %d...\n", reconnectMsg.StoredId)
+					player.Reconnect(ws)
+					sendReconnectResponse(ws, reconnectMsg.StoredId)
+					found = true
+					if reconnectMsg.StoredId != reconnectMsg.GivenId {
+						game.DeletePlayer(reconnectMsg.GivenId)
+					}
+					newPlayer = player
+					player.SendReconnectState()
+					break
+				}
+			}
+			if !found {
+				fmt.Printf("Player with the ID of %d has not been found. Binding previously given ID of %d...", reconnectMsg.StoredId, reconnectMsg.GivenId)
+				sendReconnectResponse(ws, reconnectMsg.GivenId)
+			}
+
 		default:
 			fmt.Println("Unknown message type:", msg.Type)
 		}
@@ -85,10 +131,10 @@ func wsHandler(ws *websocket.Conn) {
 	// sendInitialHand(ws, player)
 }
 
-func sendInitialHandshake(ws *websocket.Conn) {
+func sendReconnectResponse(ws *websocket.Conn, id int) {
 	msg := WebSocketMessage{
-		Type: MessageTypeInitialHandshake,
-		Data: "Welcome to the game!",
+		Type: MessageTypeReconnectResponse,
+		Data: id,
 	}
 	sendMessage(ws, msg)
 }

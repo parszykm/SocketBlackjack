@@ -6,6 +6,7 @@
 }
 .game_header{
     display: flex;
+    flex-direction: column;
     justify-content: space-around;
     align-items: center;
 }
@@ -79,6 +80,7 @@
     flex-direction: column;
     justify-content: flex-start;
     align-self: flex-start;
+    margin-right: 100px;
 }
 
 .game_other_player h2{

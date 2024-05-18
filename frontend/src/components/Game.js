@@ -1,7 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import Card from './Card';
 import Hand from './Hand';
 import './Game.css'
+
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+  });
+}
 
 function Game() {
   const [hand, setHand] = useState([]);
@@ -60,7 +66,16 @@ function Game() {
     }
   }, [playable])
   useEffect(() => {
+
+    let sessionId = sessionStorage.getItem('sessionId');
+    if (!sessionId) {
+        // Jeśli nie, wygeneruj nowy identyfikator i zapisz go w sessionStorage
+        sessionId = generateUUID();
+        sessionStorage.setItem('sessionId', sessionId);
+    }
+
     // Create a WebSocket connection to the backend
+    // localStorage.removeItem('PlayerId');
     const ws = new WebSocket('ws://localhost:8080/ws');
     setWsConn(ws)
     // Event handler for receiving a message from the backend
@@ -69,7 +84,20 @@ function Game() {
       switch (msg.type) {
         case 'InitialHandshake':
           console.log('Received initial handshake:', msg.data);
-          setPlayerId(msg.data.id)
+          if(localStorage.getItem(`${sessionId}-PlayerId`)){
+              let reconnect = {
+                type: 'Reconnect',
+                data: {
+                  storedId: parseInt(localStorage.getItem(`${sessionId}-PlayerId`)),
+                  givenId: msg.data.id
+                }
+              }
+              ws.send(JSON.stringify(reconnect));
+          }
+          else{
+            setPlayerId(msg.data.id)
+            localStorage.setItem(`${sessionId}-PlayerId`, msg.data.id)
+          }
           break
         case 'SendHand':
           console.log('Received hand:', msg.data);
@@ -94,7 +122,7 @@ function Game() {
         case 'DealerFinalHand':
           console.log('Received dealer final hand', msg.data);
           const newList = msg.data.hand
-          setDealer(old => ({count: msg.data.count, hand: newList}))
+          setDealer(() => ({count: msg.data.count, hand: newList}))
           // setDealer.count(msg.data.count)
           break
         case 'StartGame':
@@ -110,6 +138,28 @@ function Game() {
         case 'YourTurn':
           console.log('Received your turn', msg.data);
           setTurn(true)
+          break
+        case 'ReconnectResponse':
+          console.log('Received reconnect response', msg.data);
+          setPlayerId(msg.data)
+          break
+        case 'ReconnectState':
+          console.log('Received reconnect state', msg.data);
+          if(msg.data.gameStage < 3 ){
+            let dHand = msg.data.dealerHand.map((item, index) => {
+              if(index === 0){
+                return ({suit:item.suit, rank: item.rank, reversed: true})
+              }
+              else return item})
+            setDealer({count: 0, hand: dHand})
+          }
+          else{
+            setDealer({count: 0, hand: msg.data.dealerHand})
+          }
+          setHand(msg.data.hand)
+          setOtherPlayers(msg.data.otherHands)
+          setTurn(msg.data.turn)
+          setCount(msg.data.count)
           break
         default:
           console.log('Unknown message type:', msg.type);

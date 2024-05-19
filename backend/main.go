@@ -18,6 +18,7 @@ type GameSession struct {
 }
 
 const (
+	MessageTypeBind              = "Bind"
 	MessageTypeInitialHandshake  = "InitialHandshake"
 	MessageTypeStartGame         = "StartGame"
 	MessageTypeEndGame           = "EndGame"
@@ -26,6 +27,7 @@ const (
 	MessageTypeEndOfTurn         = "EndOfTurn"
 	MessageTypeReconnect         = "Reconnect"
 	MessageTypeReconnectResponse = "ReconnectResponse"
+	MessageTypeChangeStake       = "ChangeStake"
 )
 
 type WebSocketMessage struct {
@@ -34,8 +36,17 @@ type WebSocketMessage struct {
 }
 
 type MessageReconnectResponse struct {
-	StoredId int `json:"storedId"`
-	GivenId  int `json:"givenId"`
+	StoredId  int    `json:"storedId"`
+	GivenId   int    `json:"givenId"`
+	SessionId string `json:"sessionId"`
+}
+
+type MessageBind struct {
+	Username  string  `json:"username"`
+	Budget    float64 `json:"budget"`
+	Stake     float64 `json:"stake"`
+	OldId     int     `json:"oldId"`
+	SessionId string  `json:"sessionId"`
 }
 
 var (
@@ -53,12 +64,6 @@ func wsHandler(ws *websocket.Conn) {
 
 	newPlayer := &blackjack.Player{Username: "NewPlayer", Budget: 100}
 
-	game.Bind(newPlayer, ws, 10)
-
-	// connections[ws] = player
-
-	// sendInitialHandshake(ws)
-
 	for {
 		var msg WebSocketMessage
 
@@ -74,6 +79,27 @@ func wsHandler(ws *websocket.Conn) {
 		}
 
 		switch msg.Type {
+		case MessageTypeBind:
+			fmt.Println("Received bind msg")
+			fmt.Println(msg.Data)
+			dataMap, ok := msg.Data.(map[string]interface{})
+			if !ok {
+				fmt.Println("Error: Data is not in expected format")
+				continue
+			}
+			bindMsg := MessageBind{
+				Username:  dataMap["username"].(string),
+				Budget:    dataMap["budget"].(float64),
+				Stake:     dataMap["stake"].(float64),
+				OldId:     int(dataMap["oldId"].(float64)),
+				SessionId: dataMap["sessionId"].(string),
+			}
+			newPlayer.Username = bindMsg.Username
+			newPlayer.Budget = bindMsg.Budget
+			newPlayer.Id = bindMsg.OldId
+			newPlayer.SessionId = bindMsg.SessionId
+			fmt.Println(bindMsg)
+			game.Bind(newPlayer, ws, bindMsg.Stake)
 		case MessageTypeStartGame:
 			fmt.Println("Received startGame msg")
 
@@ -97,14 +123,17 @@ func wsHandler(ws *websocket.Conn) {
 				continue
 			}
 			reconnectMsg := MessageReconnectResponse{
-				StoredId: int(dataMap["storedId"].(float64)),
-				GivenId:  int(dataMap["givenId"].(float64)),
+				StoredId:  int(dataMap["storedId"].(float64)),
+				GivenId:   int(dataMap["givenId"].(float64)),
+				SessionId: dataMap["sessionId"].(string),
 			}
 
 			fmt.Printf("Got ID of %d to reconnect\n", reconnectMsg.StoredId)
+
 			found := false
 			for _, player := range game.Players {
-				if player.Id == reconnectMsg.StoredId {
+				fmt.Println(reconnectMsg.StoredId, player.Id, reconnectMsg.StoredId == player.Id)
+				if player.Id == reconnectMsg.StoredId && player.SessionId == reconnectMsg.SessionId {
 					fmt.Printf("Reconnected %d...\n", reconnectMsg.StoredId)
 					player.Reconnect(ws)
 					sendReconnectResponse(ws, reconnectMsg.StoredId)
@@ -118,10 +147,11 @@ func wsHandler(ws *websocket.Conn) {
 				}
 			}
 			if !found {
-				fmt.Printf("Player with the ID of %d has not been found. Binding previously given ID of %d...", reconnectMsg.StoredId, reconnectMsg.GivenId)
+				fmt.Printf("Player with the ID of %d and sessionID %s has not been found. Binding previously given ID of %d...", reconnectMsg.StoredId, reconnectMsg.SessionId, reconnectMsg.GivenId)
 				sendReconnectResponse(ws, reconnectMsg.GivenId)
 			}
-
+		case MessageTypeChangeStake:
+			newPlayer.DefaultStake = msg.Data.(float64)
 		default:
 			fmt.Println("Unknown message type:", msg.Type)
 		}

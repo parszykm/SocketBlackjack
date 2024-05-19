@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import Hand from './Hand';
 import './Game.css'
-
+import logo from '../assets/logo-dark.svg';
+import TextField from '@mui/material/TextField';
+import Button from '@mui/material/Button';
+import CountdownTimer from './CountdownTimer';
 function generateUUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
       var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
@@ -10,24 +13,43 @@ function generateUUID() {
 }
 
 function Game() {
+  const stakeInputRef = useRef(null);
   const [hand, setHand] = useState([]);
   const [dealer, setDealer] = useState({count: 0, hand: []});
   const [turn, setTurn] = useState(false)
   const [budget, setBudget] = useState(2000);
-  const [stake, setStake] = useState(0)
+  const [stake, setStake] = useState(20)
   const [wsConn, setWsConn] = useState()
   const [count, setCount] = useState(0)
   const [playable, setPlayable] = useState(true)
   const [resultText, setResultText] = useState('')
   const [playerId, setPlayerId] = useState(null)
   const [otherPlayers, setOtherPlayers] = useState([])
+  const [timeRem, setTimeRem] = useState(0)
 
-  useEffect(() => {
-    console.log('DEALER',dealer)
-    if(dealer.hand.length === 0){
-      console.log("WYCZYSZCZONE ESSA",dealer.hand)
+  function bindToGame() {
+    let sessionId = sessionStorage.getItem('sessionId');
+    if (!sessionId) {
+        sessionId = generateUUID();
+        sessionStorage.setItem('sessionId', sessionId);
     }
-  }, [dealer])
+    let oldId = -1
+    let LSplayerId = localStorage.getItem(`${sessionId}-PlayerId`)
+    if(LSplayerId){
+      oldId = parseInt(LSplayerId)
+    }
+    let msg ={
+      type: 'Bind',
+      data: {
+        username: "Ziom",
+        budget: budget,
+        stake: stake,
+        oldId: oldId,
+        sessionId: sessionId
+      }
+    }
+    wsConn.send(JSON.stringify(msg));
+  }
   function startGame() {
     let msg ={
       type: 'StartGame',
@@ -53,6 +75,19 @@ function Game() {
     wsConn.send(JSON.stringify(msg));
     setTurn(false)
   }
+  function changeStake(e){
+    let newStake = stakeInputRef.current.value
+    if(newStake > budget){
+      newStake = budget
+      stakeInputRef.current.value = budget
+    }
+    setStake(newStake)
+    let msg = {
+    type: 'ChangeStake',
+    data: parseInt(newStake)
+    }
+    wsConn.send(JSON.stringify(msg));
+  }
   function hit() {
     let msg = {
       type: 'Hit',
@@ -66,6 +101,13 @@ function Game() {
     }
   }, [playable])
   useEffect(() => {
+    if(wsConn){
+      setTimeout(() => {
+        bindToGame()
+      }, 300)
+    }
+  }, [wsConn])
+  useEffect(() => {
 
     let sessionId = sessionStorage.getItem('sessionId');
     if (!sessionId) {
@@ -77,19 +119,26 @@ function Game() {
     // Create a WebSocket connection to the backend
     // localStorage.removeItem('PlayerId');
     const ws = new WebSocket('ws://localhost:8080/ws');
+
     setWsConn(ws)
+
     // Event handler for receiving a message from the backend
     ws.onmessage = (event) => {
       let msg = JSON.parse(event.data);
       switch (msg.type) {
         case 'InitialHandshake':
           console.log('Received initial handshake:', msg.data);
+          if (msg.data.id == -1){
+            console.log('Cannot bind right now. Wait for the current game end...')
+            break
+          }
           if(localStorage.getItem(`${sessionId}-PlayerId`)){
               let reconnect = {
                 type: 'Reconnect',
                 data: {
                   storedId: parseInt(localStorage.getItem(`${sessionId}-PlayerId`)),
-                  givenId: msg.data.id
+                  givenId: msg.data.id,
+                  sessionId: sessionId
                 }
               }
               ws.send(JSON.stringify(reconnect));
@@ -109,6 +158,7 @@ function Game() {
           console.log('Received game result:', msg.data);
           setBudget(msg.data.budget)
           setResultText(`You have won ${msg.data.refund}. Congrats!`)
+          setTimeRem(5)
           break
         case 'DealerInitHand':
           console.log('Received dealer init hand', msg.data);
@@ -128,6 +178,9 @@ function Game() {
         case 'StartGame':
           console.log('Received start game', msg.data);
           setDealer(({...dealer, count: 0, hand: []}))
+          setBudget(msg.data)
+          setResultText("")
+          setTimeRem(0)
           // setDealer.count(0)
           setHand([])
           break
@@ -142,6 +195,7 @@ function Game() {
         case 'ReconnectResponse':
           console.log('Received reconnect response', msg.data);
           setPlayerId(msg.data)
+          localStorage.setItem(`${sessionId}-PlayerId`, msg.data)
           break
         case 'ReconnectState':
           console.log('Received reconnect state', msg.data);
@@ -160,12 +214,13 @@ function Game() {
           setOtherPlayers(msg.data.otherHands)
           setTurn(msg.data.turn)
           setCount(msg.data.count)
+
           break
         default:
           console.log('Unknown message type:', msg.type);
       }
     };
-    // Clean up the WebSocket connection when the component is unmounted
+
     return () => {
       ws.close();
     };
@@ -173,16 +228,44 @@ function Game() {
 
   return (
     <div className='game'>
-      <h1>Player ID: {playerId}</h1>
-      <h2>Budget: {budget}</h2>
-      <h2>Stake: {stake}</h2>
-
         <div className='game_header'>
+          <div className='game_header_top'>
+            <div className='game_player_info'>
+              <img src={logo} className='logo'/>
+              <div className='game_text-info'>
+                <h4>Player ID</h4>
+                <p>{playerId}</p>
+              </div>
+              <div className='game_text-info'>
+                <h4>Budget</h4>
+                <p>{budget}</p>
+              </div>
+
+            <div>
+          
+              <div className='stake_input'>
+                <TextField label="Bet"
+                  className='stake_input_box'
+                  defaultValue={stake}
+                  placeholder={stake}
+                  InputLabelProps={{ style: { color: 'white'}}}
+                  InputProps={{ style: { color: 'white' } }}
+                  sx={{ '& .MuiOutlinedInput-root': { color: 'white' } }}
+                  inputRef={stakeInputRef}
+                  />
+
+                <Button onClick={changeStake} variant="contained" className='button-stake' >
+                  Change
+                </Button>
+              </div>
+              </div>
+          </div>
             <div className="game_dealer_dashboard">
                 <h1>Dealer's hand</h1>
                 <Hand cards={dealer.hand}/>
                 <p>Dealer count: {dealer.count}</p>
             </div>
+          </div>
             <div className="game_hand">
                 <div className="game_hand_cards">
                 <h1>Your hand: </h1>
@@ -192,20 +275,22 @@ function Game() {
                 </div>
                 </div>
                 <div className="game_hand_panel">
-                    <button className='button-17' onClick={hit} disabled={!playable || !turn}>Hit</button>
-                    <button className='button-17' onClick={stand} disabled={!playable || !turn}>Stand</button>
+                    <Button variant='contained' color="secondary" onClick={hit} disabled={!playable || !turn}>Hit</Button>
+                    <Button variant='contained' color="secondary" onClick={stand} disabled={!playable || !turn}>Stand</Button>
                 </div>
+            </div>
+            <div className='results'>
+              <p>{resultText}</p>
             </div>
         </div>
         <div className="buttons">
-            <button className='button-17' onClick={startGame}>Start game</button> 
-            <button className='button-17' onClick={endGame}>End game</button> 
-            <button className='button-17' onClick={() => {startGame(); endGame();}}>Refresh game</button> 
+            <Button variant='contained' onClick={startGame}>Start game</Button> 
+            <Button variant='contained' onClick={endGame}>End game</Button> 
+            <Button variant='contained' onClick={() => {startGame(); endGame();}}>Refresh game</Button> 
+            <Button variant='contained' onClick={bindToGame}>Bind</Button> 
         </div>
-      <div className='results'>
-        <p>{resultText}</p>
-      </div>
-
+      {timeRem}
+      <CountdownTimer className='timer' initialSeconds={timeRem} />
       <div className='game_other'>
         {otherPlayers.map((player) => 
           {if(player.id != playerId){

@@ -77,8 +77,10 @@ type Game struct {
 
 type Player struct {
 	Id               int
+	SessionId        string
 	Username         string
 	Budget           float64
+	DefaultStake     float64
 	Stake            float64
 	Game             *Game
 	Hand             []deck.Card
@@ -121,7 +123,6 @@ func (g *Game) FilterPlayers() {
 }
 func (g *Game) NewRound() {
 	g.FilterPlayers()
-	fmt.Println(g.Dealer.Hand)
 	g.CurrentTurn = 0
 	g.Deck = deck.New(deck.Deck(1), deck.Shuffle)
 	g.Dealer = new(Dealer)
@@ -131,15 +132,20 @@ func (g *Game) NewRound() {
 	for _, player := range g.Players {
 		player.Hand = nil
 	}
-
-	fmt.Println(g.Dealer.Hand)
 }
 func (g *Game) StartGame() {
 	g.FilterPlayers()
+	for len(g.Players) == 0 {
+		fmt.Println("No players. Waiting 10 seconds....")
+		time.Sleep(5 * time.Second)
+		g.FilterPlayers()
+	}
 	g.GameStage = GameActive
-	fmt.Println(g.Dealer.Hand)
-	msg := WebSocketMessage{MessageTypeStartGame, "StartGame"}
+
 	for _, player := range g.Players {
+		player.Stake = player.DefaultStake
+		player.Budget -= player.Stake
+		msg := WebSocketMessage{MessageTypeStartGame, player.Budget}
 		sendMessage(player.conn, msg)
 	}
 	g.Dealer.Hit()
@@ -154,6 +160,7 @@ func (g *Game) StartGame() {
 	for _, player := range g.Players {
 		player.ShowHand()
 	}
+
 	g.NextPlayer()
 }
 
@@ -173,10 +180,12 @@ func (g *Game) NextPlayer() {
 	if g.CurrentTurn == len(g.Players) {
 		g.EndGame()
 		g.NewRound()
+		time.Sleep(5 * time.Second)
+		g.StartGame()
 		return
 	}
 	player := g.Players[g.CurrentTurn]
-	if !player.ActiveConnection {
+	if !player.ActiveConnection || player.EvalHand() == 21 {
 		g.CurrentTurn++
 		g.NextPlayer()
 		return
@@ -200,8 +209,13 @@ func (g *Game) EndGame() error {
 				if !player.ActiveConnection {
 					continue
 				}
-				if player.EvalHand() <= 21 {
+				if player.EvalHand() < 21 {
 					player.Budget += player.Stake * 2
+					message := WebSocketMessage{MessageTypeGameResult, ResultMessage{Count: player.EvalHand(), Refund: player.Stake * 2, Budget: player.Budget}}
+					sendMessage(player.conn, message)
+				}
+				if player.EvalHand() == 21 {
+					player.Budget += player.Stake * 2.5
 					message := WebSocketMessage{MessageTypeGameResult, ResultMessage{Count: player.EvalHand(), Refund: player.Stake * 2, Budget: player.Budget}}
 					sendMessage(player.conn, message)
 				}
@@ -245,26 +259,49 @@ func (g *Game) EndGame() error {
 		}
 
 	}
-
 	return nil
 }
 
 func (g *Game) Bind(p *Player, ws *websocket.Conn, stake float64) (int, error) {
+	// if g.GameStage == GameActive {
+	// 	msg := WebSocketMessage{MessageTypeInitialHandshake, InitialHandshakeMessage{-1, "Welcome to the game!"}}
+	// 	sendMessage(ws, msg)
+	// 	return -1, nil
+	// }
 	if p.Budget < stake {
 		return -1, fmt.Errorf("Not enough credits in player's budget...")
 	}
 	g.mutex.Lock()
 	defer g.mutex.Unlock()
 
+	found := false
+	for _, player := range g.Players {
+		fmt.Println(player, p.Id, player.Id == p.Id)
+		if player.Id == p.Id && player.SessionId == p.SessionId {
+			found = true
+			break
+		}
+	}
+	if (!found || p.Id == -1) && g.GameStage == GameActive {
+		msg := WebSocketMessage{MessageTypeInitialHandshake, InitialHandshakeMessage{-1, "Welcome to the game!"}}
+		sendMessage(ws, msg)
+		return -1, nil
+	}
 	p.Id = g.PlayerIdCounters
 	g.PlayerIdCounters++
-	p.Budget -= stake
 	p.Stake = stake
+	p.DefaultStake = stake
 	p.Game = g
 	p.conn = ws
 	p.ActiveConnection = true
+	for _, player := range g.Players {
+		fmt.Println(player)
+	}
 	g.Players = append(g.Players, p)
 	fmt.Printf("New player hes been gived ID of  %d\n", p.Id)
+	for _, player := range g.Players {
+		fmt.Println(player)
+	}
 	msg := WebSocketMessage{MessageTypeInitialHandshake, InitialHandshakeMessage{p.Id, "Welcome to the game!"}}
 	sendMessage(ws, msg)
 	return p.Id, nil

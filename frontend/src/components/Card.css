@@ -12,7 +12,10 @@
     flex-direction: row;
     align-items: center;
     justify-content: center;
-    color: #000;
+    color: #000 !important;
+  }
+  .card p {
+    color: #000 !important;
   }
   .header {
     width: 20%;

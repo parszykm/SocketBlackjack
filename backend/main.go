@@ -112,6 +112,9 @@ func wsHandler(ws *websocket.Conn) {
 			// 	break
 
 		case MessageTypeStand:
+			for _, player := range game.Players {
+				player.ShowHand()
+			}
 			game.NextPlayer()
 		case MessageTypeEndGame:
 			game.EndGame()

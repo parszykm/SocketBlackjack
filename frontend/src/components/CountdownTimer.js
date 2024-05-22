@@ -8,9 +8,9 @@ function CountdownTimer({ initialSeconds }) {
       if (initialSeconds > 0) {
         console.log("Changes", initialSeconds)
       const intervalId = setInterval(() => {
-        setSeconds(prevSeconds => prevSeconds - 1);
+        setSeconds(prevSeconds => Math.max(prevSeconds - 1,0));
       }, 1000);
-
+      
       // Clear the interval on component unmount
       return () => clearInterval(intervalId);
     }

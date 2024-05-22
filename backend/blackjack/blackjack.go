@@ -27,6 +27,8 @@ const (
 	MessageTypeOtherHands        = "OtherHands"
 	MessageTypeYourTurn          = "YourTurn"
 	MessageTypeReconnectState    = "ReconnectState"
+	MessageTypeGameReady         = "GameReady"
+	MessageTypeGameNotReady      = "GameNotReady"
 )
 
 type WebSocketMessage struct {
@@ -54,6 +56,7 @@ type OtherHandStruct struct {
 	Id        int         `json:"id"`
 	Hand      []deck.Card `json:"hand"`
 	Timestamp time.Time   `json:"timestamp"`
+	Turn      bool        `json:"turn"`
 }
 
 type ReconnectStateMessage struct {
@@ -70,6 +73,7 @@ type Game struct {
 	PlayerIdCounters int
 	Deck             []deck.Card
 	Players          []*Player
+	PlayersWaiting   []*Player
 	Dealer           *Dealer
 	CurrentTurn      int
 	GameStage        GameStage
@@ -140,7 +144,18 @@ func (g *Game) StartGame() {
 		time.Sleep(5 * time.Second)
 		g.FilterPlayers()
 	}
+	var PlayersWaitingTmp []*Player
 	g.GameStage = GameActive
+	fmt.Println("Waiting guys")
+	for _, player := range g.PlayersWaiting {
+		fmt.Println(player)
+		if player.ActiveConnection {
+			PlayersWaitingTmp = append(PlayersWaitingTmp, player)
+			message := WebSocketMessage{MessageTypeGameNotReady, 1}
+			sendMessage(player.conn, message)
+		}
+	}
+	g.PlayersWaiting = PlayersWaitingTmp
 
 	for _, player := range g.Players {
 		player.Stake = player.DefaultStake
@@ -190,9 +205,9 @@ func (g *Game) NextPlayer() {
 		g.NextPlayer()
 		return
 	}
+	g.CurrentTurn++
 	msg := WebSocketMessage{MessageTypeYourTurn, 1}
 	sendMessage(player.conn, msg)
-	g.CurrentTurn++
 }
 func (g *Game) EndGame() error {
 	g.GameStage = PostGame
@@ -217,6 +232,12 @@ func (g *Game) EndGame() error {
 				if player.EvalHand() == 21 {
 					player.Budget += player.Stake * 2.5
 					message := WebSocketMessage{MessageTypeGameResult, ResultMessage{Count: player.EvalHand(), Refund: player.Stake * 2, Budget: player.Budget}}
+					sendMessage(player.conn, message)
+				}
+			}
+			for _, player := range g.PlayersWaiting {
+				if player.ActiveConnection {
+					message := WebSocketMessage{MessageTypeGameReady, 1}
 					sendMessage(player.conn, message)
 				}
 			}
@@ -259,6 +280,12 @@ func (g *Game) EndGame() error {
 		}
 
 	}
+	for _, player := range g.PlayersWaiting {
+		if player.ActiveConnection {
+			message := WebSocketMessage{MessageTypeGameReady, 1}
+			sendMessage(player.conn, message)
+		}
+	}
 	return nil
 }
 
@@ -283,9 +310,16 @@ func (g *Game) Bind(p *Player, ws *websocket.Conn, stake float64) (int, error) {
 		}
 	}
 	if (!found || p.Id == -1) && g.GameStage == GameActive {
+		g.PlayersWaiting = append(g.PlayersWaiting, &Player{conn: ws, ActiveConnection: true})
 		msg := WebSocketMessage{MessageTypeInitialHandshake, InitialHandshakeMessage{-1, "Welcome to the game!"}}
 		sendMessage(ws, msg)
 		return -1, nil
+	}
+
+	for _, waiting := range g.PlayersWaiting {
+		if ws == waiting.conn {
+			waiting.ActiveConnection = false
+		}
 	}
 	p.Id = g.PlayerIdCounters
 	g.PlayerIdCounters++
@@ -339,9 +373,11 @@ func (p *Player) ShowHand() bool {
 	fmt.Printf("%s hand:\n", p.Username)
 	defer func() {
 		var hands []OtherHandStruct
-		for _, player := range p.Game.Players {
+		for index, player := range p.Game.Players {
 			if player.ActiveConnection {
-				hands = append(hands, OtherHandStruct{player.Id, player.Hand, time.Now()})
+				turn := ((p.Game.CurrentTurn) == index)
+				fmt.Println(player, turn, "turn", player.Game.CurrentTurn, index)
+				hands = append(hands, OtherHandStruct{player.Id, player.Hand, time.Now(), turn})
 			}
 
 		}
@@ -441,9 +477,10 @@ func (p *Player) SendReconnectState() {
 	turn = index != p.Game.CurrentTurn
 
 	var hands []OtherHandStruct
-	for _, player := range p.Game.Players {
+	for index, player := range p.Game.Players {
 		if player.ActiveConnection {
-			hands = append(hands, OtherHandStruct{player.Id, player.Hand, time.Now()})
+			turn := ((p.Game.CurrentTurn) == index)
+			hands = append(hands, OtherHandStruct{player.Id, player.Hand, time.Now(), turn})
 		}
 	}
 

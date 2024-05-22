@@ -26,6 +26,7 @@ function Game() {
   const [playerId, setPlayerId] = useState(null)
   const [otherPlayers, setOtherPlayers] = useState([])
   const [timeRem, setTimeRem] = useState(0)
+  const [gameReadyState, setGameReadyState] = useState(false)
 
   function bindToGame() {
     let sessionId = sessionStorage.getItem('sessionId');
@@ -129,7 +130,9 @@ function Game() {
         case 'InitialHandshake':
           console.log('Received initial handshake:', msg.data);
           if (msg.data.id == -1){
-            console.log('Cannot bind right now. Wait for the current game end...')
+            console.log('Cannot bind right now. Wait for the current game to end...')
+            setGameReadyState(false)
+            setResultText('Cannot bind right now. Wait for the current game to end...')
             break
           }
           if(localStorage.getItem(`${sessionId}-PlayerId`)){
@@ -160,6 +163,14 @@ function Game() {
           setResultText(`You have won ${msg.data.refund}. Congrats!`)
           setTimeRem(5)
           break
+        case 'GameReady':
+          setTimeRem(5)
+          setResultText('You can join to game now...')
+          break
+        case 'GameNotReady':
+          setResultText('Cannot bind right now. Wait for the current game to end...')
+          setTimeRem(0)
+          break
         case 'DealerInitHand':
           console.log('Received dealer init hand', msg.data);
           let initList = msg.data.map((item, index) => {
@@ -181,6 +192,7 @@ function Game() {
           setBudget(msg.data)
           setResultText("")
           setTimeRem(0)
+          setGameReadyState(true)
           // setDealer.count(0)
           setHand([])
           break
@@ -199,6 +211,7 @@ function Game() {
           break
         case 'ReconnectState':
           console.log('Received reconnect state', msg.data);
+          setGameReadyState(true)
           if(msg.data.gameStage < 3 ){
             let dHand = msg.data.dealerHand.map((item, index) => {
               if(index === 0){
@@ -260,13 +273,13 @@ function Game() {
               </div>
               </div>
           </div>
-            <div className="game_dealer_dashboard">
+            <div className="game_dealer_dashboard" style={{display: gameReadyState ? 'flex' : 'none'}}>
                 <h1>Dealer's hand</h1>
                 <Hand cards={dealer.hand}/>
                 <p>Dealer count: {dealer.count}</p>
             </div>
           </div>
-            <div className="game_hand">
+            <div className="game_hand" style={{display: gameReadyState ? 'flex' : 'none'}}>
                 <div className="game_hand_cards">
                 <h1>Your hand: </h1>
                 <Hand cards={hand}/>
@@ -274,7 +287,7 @@ function Game() {
                     <p>Your count: {count}</p>
                 </div>
                 </div>
-                <div className="game_hand_panel">
+                <div className="game_hand_panel" >
                     <Button variant='contained' color="secondary" onClick={hit} disabled={!playable || !turn}>Hit</Button>
                     <Button variant='contained' color="secondary" onClick={stand} disabled={!playable || !turn}>Stand</Button>
                 </div>
@@ -293,14 +306,15 @@ function Game() {
       <CountdownTimer className='timer' initialSeconds={timeRem} />
       <div className='game_other'>
         {otherPlayers.map((player) => 
-          {if(player.id != playerId){
+          {
             return(
               <div className='game_other_player' key={player.id}>
-                <h2>Player ID: {player.id}</h2>
-                <Hand cards={player.hand}/>
+                {player.turn ? "Turn" : ""}
+                <h2>{player.id == playerId ? "You" : `Player ID: ${player.id}`}</h2>
+                <Hand cards={player.id == playerId ? hand : player.hand}/>
               </div>
             )
-          }
+          
         })
 
         }

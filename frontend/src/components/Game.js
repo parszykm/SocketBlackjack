@@ -13,7 +13,7 @@ function generateUUID() {
   });
 }
 
-function Game() {
+function Game({port, room}) {
   const stakeInputRef = useRef(null);
   const [hand, setHand] = useState([]);
   const [dealer, setDealer] = useState({count: 0, hand: []});
@@ -112,7 +112,7 @@ function Game() {
     }
   }, [wsConn])
   useEffect(() => {
-
+    
     let sessionId = sessionStorage.getItem('sessionId');
     if (!sessionId) {
         // Jeśli nie, wygeneruj nowy identyfikator i zapisz go w sessionStorage
@@ -122,7 +122,8 @@ function Game() {
 
     // Create a WebSocket connection to the backend
     // localStorage.removeItem('PlayerId');
-    const ws = new WebSocket('ws://localhost:8080/ws');
+
+    const ws = new WebSocket(`ws://localhost:${port}/ws${room}`);
 
     setWsConn(ws)
 
@@ -258,6 +259,7 @@ function Game() {
 
   return (
     <div className='game'>
+      <h1> Room {room} </h1>
         <div className='game_header'>
           <div className='game_header_top'>
             <div className='game_player_info'>

@@ -289,11 +289,6 @@ func (g *Game) EndGame() error {
 }
 
 func (g *Game) Bind(p *Player, ws *websocket.Conn, stake float64) (int, error) {
-	// if g.GameStage == GameActive {
-	// 	msg := WebSocketMessage{MessageTypeInitialHandshake, InitialHandshakeMessage{-1, "Welcome to the game!"}}
-	// 	sendMessage(ws, msg)
-	// 	return -1, nil
-	// }
 	if p.Budget < stake {
 		return -1, fmt.Errorf("Not enough credits in player's budget...")
 	}
@@ -334,11 +329,6 @@ func (g *Game) Bind(p *Player, ws *websocket.Conn, stake float64) (int, error) {
 	sendMessage(ws, msg)
 	return p.Id, nil
 }
-
-// func (p *Player) Bind(game *Game) {
-// 	p.Game = game
-// 	game.Players = append(game.Players, p)
-// }
 
 func (p *Player) Hit() (deck.Card, error) {
 
@@ -383,7 +373,6 @@ func (p *Player) ShowHand() bool {
 
 	count := p.EvalHand()
 	if count == 21 {
-		// p.Budget += p.Stake * 2.5
 		fmt.Printf("Count: %d\n-----------\n", p.Count)
 
 		fmt.Println("You have BLACKJACK. Congrats...")
@@ -391,7 +380,6 @@ func (p *Player) ShowHand() bool {
 		sendMessage(p.conn, message)
 		return false
 	} else if count > 21 {
-		// p.Stake = 0
 		fmt.Printf("Count: %d\n-----------\n", p.Count)
 		fmt.Println("Your hand exceeded the 21 score. You lost...")
 		message := WebSocketMessage{MessageTypeSendHand, HandMessage{Hand: p.Hand, Stage: false, Count: count}}
@@ -477,7 +465,3 @@ func (p *Player) SendReconnectState() {
 	sendMessage(p.conn, msg)
 
 }
-
-// func (d *Dealer) ResetDealer() {
-
-// }

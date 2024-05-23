@@ -51,9 +51,7 @@ type MessageBind struct {
 }
 
 var (
-	// Map to store WebSocket connections and associated players.
-	// connections = make(map[*websocket.Conn]*blackjack.Player)
-	mutex   sync.Mutex // Mutex for safe concurrent access to the map.
+	mutex   sync.Mutex
 	game    = blackjack.NewGame()
 	counter = 0
 )
@@ -72,7 +70,7 @@ func wsHandler(ws *websocket.Conn) {
 			fmt.Printf("Client with ID %d disconnected...\n", newPlayer.Id)
 			newPlayer.ActiveConnection = false
 			mutex.Lock()
-			// delete(connections, ws)
+
 			counter--
 			fmt.Printf("Number of connections: %d\n", counter)
 			mutex.Unlock()
@@ -108,8 +106,6 @@ func wsHandler(ws *websocket.Conn) {
 			fmt.Println("Received hit msg")
 			newPlayer.Hit()
 			newPlayer.ShowHand()
-			// if nextRound := player.ShowHand(); !nextRound {
-			// 	break
 
 		case MessageTypeStand:
 			for _, player := range game.Players {
@@ -168,8 +164,6 @@ func wsHandler(ws *websocket.Conn) {
 		}
 	}
 
-	// game.StartGame()
-	// sendInitialHand(ws, player)
 }
 
 func sendReconnectResponse(ws *websocket.Conn, id int) {
@@ -186,9 +180,6 @@ func sendMessage(ws *websocket.Conn, msg WebSocketMessage) {
 	}
 }
 
-//	func sendDealersHand(ws *websocket.Conn, player *blackjack.Player) {
-//		dealersHand := game
-//	}
 func sendInitialHand(ws *websocket.Conn, player *blackjack.Player) {
 	myDeck := deck.New(deck.Deck(3), deck.Shuffle)
 
@@ -207,7 +198,6 @@ func sendInitialHand(ws *websocket.Conn, player *blackjack.Player) {
 		return
 	}
 
-	// Send the initial hand to the client.
 	_, err = ws.Write(jsonHand)
 	if err != nil {
 		fmt.Println("Error sending initial hand:", err)
@@ -215,17 +205,7 @@ func sendInitialHand(ws *websocket.Conn, player *blackjack.Player) {
 }
 
 func main() {
-	// new_deck := deck.New(deck.Deck(3), deck.Shuffle)
-	// deck.PrintDeck(new_deck)
 
-	/*
-		game := blackjack.NewGame()
-		player1 := &blackjack.Player{Username: "majkel", Budget: 20}
-		player2 := &blackjack.Player{Username: "ziomo2", Budget: 3000}
-		game.Bind(player1, 10)
-		game.Bind(player2, 1500)
-		game.StartGame()
-	*/
 	http.Handle("/ws", websocket.Handler(wsHandler))
 
 	fmt.Println("Starting server on :8080")

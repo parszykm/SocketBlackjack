@@ -49,8 +49,15 @@
 
 
   }
+  .card-canvas {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+  }
 
   .content {
+    z-index: 1;
     width: 60%;
     height: 80%;
     display: flex;
@@ -62,7 +69,7 @@
   }
   .card-image{
     width: 20px;
-    margin-top: 0.5em;
+    /* margin-top: 0.5em; */
   }
   .card-rank{
     font-family: "Cardo", serif;

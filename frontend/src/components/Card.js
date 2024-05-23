@@ -1,5 +1,5 @@
 import React from 'react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef} from 'react'
 import heart from '../assets/heart.svg'
 import club from '../assets/club.svg'
 import diamond from '../assets/diamond.svg'
@@ -67,6 +67,7 @@ function Card({suit,rank, reversed=false}) {
     const [rankState, setRankState] = useState()
     const [centerIconState, setCenterIconState] = useState()
     const [reverseState, setReverseState] = useState(true)
+    const canvasRef = useRef(null);
     // console.log("Suit:",suitState, suit)
     // console.log("rank:", rankState, rank)
     useEffect(() => {
@@ -80,6 +81,34 @@ function Card({suit,rank, reversed=false}) {
     },[])
     const isOddRank = rank % 2 !== 0;
     const oddIndex = isOddRank ? Math.ceil(rank / 3) : 0
+
+    useEffect(() => {
+        if(!canvasRef.current) return
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+    
+        ctx.fillStyle = '#f8f8f8';
+        ctx.strokeStyle = '#ccc';
+        ctx.lineWidth = 5;
+        const borderRadius = 20;
+        const width = canvas.width;
+        const height = canvas.height;
+    
+        ctx.beginPath();
+        ctx.moveTo(borderRadius, 0);
+        ctx.lineTo(width - borderRadius, 0);
+        ctx.quadraticCurveTo(width, 0, width, borderRadius);
+        ctx.lineTo(width, height - borderRadius);
+        ctx.quadraticCurveTo(width, height, width - borderRadius, height);
+        ctx.lineTo(borderRadius, height);
+        ctx.quadraticCurveTo(0, height, 0, height - borderRadius);
+        ctx.lineTo(0, borderRadius);
+        ctx.quadraticCurveTo(0, 0, borderRadius, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }, [canvasRef]);
+
     if(reverseState){
         return (
             <div className="card">
@@ -89,22 +118,13 @@ function Card({suit,rank, reversed=false}) {
     }
     return (
         <div className="card">
+             <canvas ref={canvasRef} width={400} height={600} className="card-canvas" />
             <div className="header">
                 <div className='suit-rank'>
                     <p className="card-rank">{rankState}</p>
                     <img className="card-image" src={suitState} />
                 </div>
             </div>
-            {/* <div className={`content ${isOddRank ? 'odd-rank' : 'even-rank'}`}>
-                {(() => {
-                    let icons = [];
-
-                    for(let i=0; i<rank; i++){
-                        icons.push(<img key={i} className="card-icon" src={suitState} />);
-                    }
-                    return icons;
-                })()}
-            </div> */}
             <div className="content">
                 <img className="card-image-center" src={centerIconState}/>
             </div>

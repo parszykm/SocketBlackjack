@@ -5,6 +5,7 @@ import logo from '../assets/logo-dark.svg';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import CountdownTimer from './CountdownTimer';
+import Logo from './Logo';
 function generateUUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
       var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
@@ -27,6 +28,7 @@ function Game() {
   const [otherPlayers, setOtherPlayers] = useState([])
   const [timeRem, setTimeRem] = useState(0)
   const [gameReadyState, setGameReadyState] = useState(false)
+  const [gameRunning, setGameRunning] = useState(false)
 
   function bindToGame() {
     let sessionId = sessionStorage.getItem('sessionId');
@@ -76,18 +78,19 @@ function Game() {
     wsConn.send(JSON.stringify(msg));
     setTurn(false)
   }
-  function changeStake(e){
+  function changeStake(){
     let newStake = stakeInputRef.current.value
     if(newStake > budget){
       newStake = budget
       stakeInputRef.current.value = budget
     }
-    setStake(newStake)
+    // setStake(newStake)
     let msg = {
     type: 'ChangeStake',
     data: parseInt(newStake)
     }
     wsConn.send(JSON.stringify(msg));
+    console.log('WYSLANE')
   }
   function hit() {
     let msg = {
@@ -161,10 +164,10 @@ function Game() {
           console.log('Received game result:', msg.data);
           setBudget(msg.data.budget)
           setResultText(`You have won ${msg.data.refund}. Congrats!`)
-          setTimeRem(5)
+          setTimeRem(15)
           break
         case 'GameReady':
-          setTimeRem(5)
+          setTimeRem(15)
           setResultText('You can join to game now...')
           break
         case 'GameNotReady':
@@ -193,6 +196,7 @@ function Game() {
           setResultText("")
           setTimeRem(0)
           setGameReadyState(true)
+          setGameRunning(true)
           // setDealer.count(0)
           setHand([])
           break
@@ -229,6 +233,19 @@ function Game() {
           setCount(msg.data.count)
 
           break
+        case 'ChangeStakeResponse':
+          console.log('Received changeStake response', msg.data)
+          if (msg.data == stake){
+            setResultText('Cannot change bet right now. Wait for game to end...')
+            stakeInputRef.current.value = msg.data
+            break
+          }
+          setStake(msg.data)
+          setResultText(`Changed bet to ${msg.data}`)
+          stakeInputRef.current.value = msg.data
+          
+          break
+          
         default:
           console.log('Unknown message type:', msg.type);
       }
@@ -244,7 +261,8 @@ function Game() {
         <div className='game_header'>
           <div className='game_header_top'>
             <div className='game_player_info'>
-              <img src={logo} className='logo'/>
+              {/* <img src={logo} className='logo'/> */}
+              <Logo className='logo'/>
               <div className='game_text-info'>
                 <h4>Player ID</h4>
                 <p>{playerId}</p>
@@ -297,20 +315,16 @@ function Game() {
             </div>
         </div>
         <div className="buttons">
-            <Button variant='contained' onClick={startGame}>Start game</Button> 
-            <Button variant='contained' onClick={endGame}>End game</Button> 
-            <Button variant='contained' onClick={() => {startGame(); endGame();}}>Refresh game</Button> 
-            <Button variant='contained' onClick={bindToGame}>Bind</Button> 
+            <Button variant='contained' onClick={startGame} disabled={gameRunning}>Start game</Button> 
+            <Button variant='contained' onClick={bindToGame} disabled={playerId !== null ? true : false}>Join</Button> 
         </div>
-      {timeRem}
       <CountdownTimer className='timer' initialSeconds={timeRem} />
       <div className='game_other'>
         {otherPlayers.map((player) => 
           {
             return(
               <div className='game_other_player' key={player.id}>
-                {player.turn ? "Turn" : ""}
-                <h2>{player.id == playerId ? "You" : `Player ID: ${player.id}`}</h2>
+                <h2>{player.id == playerId ? "You" : `Player ID: ${player.id}`}<b>{player.turn ? " Turn" : " "}</b></h2>
                 <Hand cards={player.id == playerId ? hand : player.hand}/>
               </div>
             )

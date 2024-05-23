@@ -18,16 +18,17 @@ type GameSession struct {
 }
 
 const (
-	MessageTypeBind              = "Bind"
-	MessageTypeInitialHandshake  = "InitialHandshake"
-	MessageTypeStartGame         = "StartGame"
-	MessageTypeEndGame           = "EndGame"
-	MessageTypeHit               = "Hit"
-	MessageTypeStand             = "Stand"
-	MessageTypeEndOfTurn         = "EndOfTurn"
-	MessageTypeReconnect         = "Reconnect"
-	MessageTypeReconnectResponse = "ReconnectResponse"
-	MessageTypeChangeStake       = "ChangeStake"
+	MessageTypeBind                = "Bind"
+	MessageTypeInitialHandshake    = "InitialHandshake"
+	MessageTypeStartGame           = "StartGame"
+	MessageTypeEndGame             = "EndGame"
+	MessageTypeHit                 = "Hit"
+	MessageTypeStand               = "Stand"
+	MessageTypeEndOfTurn           = "EndOfTurn"
+	MessageTypeReconnect           = "Reconnect"
+	MessageTypeReconnectResponse   = "ReconnectResponse"
+	MessageTypeChangeStake         = "ChangeStake"
+	MessageTypeChangeStakeResponse = "ChangeStakeResponse"
 )
 
 type WebSocketMessage struct {
@@ -81,7 +82,6 @@ func wsHandler(ws *websocket.Conn) {
 		switch msg.Type {
 		case MessageTypeBind:
 			fmt.Println("Received bind msg")
-			fmt.Println(msg.Data)
 			dataMap, ok := msg.Data.(map[string]interface{})
 			if !ok {
 				fmt.Println("Error: Data is not in expected format")
@@ -154,7 +154,15 @@ func wsHandler(ws *websocket.Conn) {
 				sendReconnectResponse(ws, reconnectMsg.GivenId)
 			}
 		case MessageTypeChangeStake:
-			newPlayer.DefaultStake = msg.Data.(float64)
+			fmt.Println("Received CHAGE stake", msg.Data.(float64))
+			if game.GameStage == blackjack.GameActive {
+				res := WebSocketMessage{MessageTypeChangeStakeResponse, newPlayer.DefaultStake}
+				sendMessage(ws, res)
+			} else {
+				newPlayer.DefaultStake = msg.Data.(float64)
+				res := WebSocketMessage{MessageTypeChangeStakeResponse, newPlayer.DefaultStake}
+				sendMessage(ws, res)
+			}
 		default:
 			fmt.Println("Unknown message type:", msg.Type)
 		}
